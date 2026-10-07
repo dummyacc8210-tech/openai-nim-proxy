@@ -237,12 +237,13 @@ app.all('*', (req, res) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-
-// Only listen when running locally (not on Vercel)
+// Only listen locally; Vercel handles the server itself
 if (process.env.VERCEL !== '1') {
   app.listen(PORT, () => {
-    console.log(`Proxy running on port ${PORT}`);
+    console.log(`OpenAI to NVIDIA NIM Proxy running on port ${PORT}`);
+    console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`Reasoning display: ${SHOW_REASONING ? 'ENABLED' : 'DISABLED'}`);
+    console.log(`Thinking mode: ${ENABLE_THINKING_MODE ? 'ENABLED' : 'DISABLED'}`);
   });
 }
 
