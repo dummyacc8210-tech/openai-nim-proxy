@@ -1,5 +1,6 @@
 // server.js - OpenAI to NVIDIA NIM API Proxy
 // server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
+// server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -7,19 +8,19 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware (large limit so Janitor AI chat history fits)
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// NVIDIA NIM API configuration
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
-const NIM_API_KEY = process.env.NIM_API_KEY;
+const NIM_API_KEY = (process.env.NIM_API_KEY || '').trim();
 
+// Set to true to see the model's reasoning inside <think> tags
 const SHOW_REASONING = false;
-const ENABLE_THINKING_MODE = false;
+// Set to false to make GLM answer directly (faster, no silent "thinking" phase)
+const ENABLE_THINKING = false;
 
-const DEFAULT_MODEL = 'moonshotai/kimi-k3';
+const DEFAULT_MODEL = 'z-ai/glm-5.3-flash';
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': DEFAULT_MODEL,
@@ -31,46 +32,41 @@ const MODEL_MAPPING = {
   'gemini-pro': DEFAULT_MODEL
 };
 
-// Health check
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    service: 'OpenAI to NVIDIA NIM Proxy',
-    reasoning_display: SHOW_REASONING,
-    thinking_mode: ENABLE_THINKING_MODE,
+    model: DEFAULT_MODEL,
+    show_reasoning: SHOW_REASONING,
+    thinking: ENABLE_THINKING,
     api_key_set: !!NIM_API_KEY
   });
 });
 
-// List models
 app.get('/v1/models', (req, res) => {
-  const models = Object.keys(MODEL_MAPPING).map(model => ({
-    id: model,
-    object: 'model',
-    created: Math.floor(Date.now() / 1000),
-    owned_by: 'nvidia-nim-proxy'
-  }));
-  res.json({ object: 'list', data: models });
+  res.json({
+    object: 'list',
+    data: Object.keys(MODEL_MAPPING).map(id => ({
+      id,
+      object: 'model',
+      created: Math.floor(Date.now() / 1000),
+      owned_by: 'nvidia-nim-proxy'
+    }))
+  });
 });
 
-// Chat completions
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
-
     const nimModel = MODEL_MAPPING[model] || DEFAULT_MODEL;
 
     const nimRequest = {
       model: nimModel,
-      messages: messages,
+      messages,
       temperature: temperature || 0.6,
       max_tokens: max_tokens || 2048,
-      stream: stream || false
+      stream: !!stream,
+      chat_template_kwargs: { enable_thinking: ENABLE_THINKING }
     };
-
-    if (ENABLE_THINKING_MODE) {
-      nimRequest.chat_template_kwargs = { thinking: true };
-    }
 
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
@@ -82,8 +78,13 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 10000);
+      res.on('close', () => clearInterval(keepAlive));
 
       let buffer = '';
       let reasoningStarted = false;
@@ -94,55 +95,57 @@ app.post('/v1/chat/completions', async (req, res) => {
         buffer = lines.pop() || '';
 
         lines.forEach(line => {
-          if (line.startsWith('data: ')) {
-            if (line.includes('[DONE]')) {
-              res.write(line + '\n\n');
-              return;
-            }
+          if (!line.startsWith('data: ')) return;
 
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.choices?.[0]?.delta) {
-                const reasoning = data.choices[0].delta.reasoning_content;
-                const content = data.choices[0].delta.content;
+          if (line.includes('[DONE]')) {
+            res.write('data: [DONE]\n\n');
+            return;
+          }
 
-                if (SHOW_REASONING) {
-                  let combinedContent = '';
+          try {
+            const data = JSON.parse(line.slice(6));
+            const delta = data.choices?.[0]?.delta;
 
-                  if (reasoning && !reasoningStarted) {
-                    combinedContent = '<think>\n' + reasoning;
-                    reasoningStarted = true;
-                  } else if (reasoning) {
-                    combinedContent = reasoning;
-                  }
+            if (delta) {
+              const reasoning = delta.reasoning_content || delta.reasoning;
+              const content = delta.content;
 
-                  if (content && reasoningStarted) {
-                    combinedContent += '</think>\n\n' + content;
-                    reasoningStarted = false;
-                  } else if (content) {
-                    combinedContent += content;
-                  }
-
-                  if (combinedContent) {
-                    data.choices[0].delta.content = combinedContent;
-                    delete data.choices[0].delta.reasoning_content;
-                  }
-                } else {
-                  data.choices[0].delta.content = content || '';
-                  delete data.choices[0].delta.reasoning_content;
+              if (SHOW_REASONING) {
+                let combined = '';
+                if (reasoning && !reasoningStarted) {
+                  combined = '<think>\n' + reasoning;
+                  reasoningStarted = true;
+                } else if (reasoning) {
+                  combined = reasoning;
                 }
+                if (content && reasoningStarted) {
+                  combined += '</think>\n\n' + content;
+                  reasoningStarted = false;
+                } else if (content) {
+                  combined += content;
+                }
+                delta.content = combined;
+              } else {
+                delta.content = content || '';
               }
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
-            } catch (e) {
-              res.write(line + '\n\n');
+              delete delta.reasoning_content;
+              delete delta.reasoning;
             }
+
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+          } catch (e) {
+            res.write(line + '\n\n');
           }
         });
       });
 
-      response.data.on('end', () => res.end());
+      response.data.on('end', () => {
+        clearInterval(keepAlive);
+        res.end();
+      });
       response.data.on('error', (err) => {
-        console.error('Stream error:', err);
+        clearInterval(keepAlive);
+        console.error('Stream error:', err.message);
         res.end();
       });
     } else {
@@ -150,20 +153,18 @@ app.post('/v1/chat/completions', async (req, res) => {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
-        model: model,
+        model,
         choices: response.data.choices.map(choice => {
           let fullContent = choice.message?.content || '';
+          const reasoning = choice.message?.reasoning_content || choice.message?.reasoning;
 
-          if (SHOW_REASONING && choice.message?.reasoning_content) {
-            fullContent = '<think>\n' + choice.message.reasoning_content + '\n</think>\n\n' + fullContent;
+          if (SHOW_REASONING && reasoning) {
+            fullContent = '<think>\n' + reasoning + '\n</think>\n\n' + fullContent;
           }
 
           return {
             index: choice.index,
-            message: {
-              role: choice.message.role,
-              content: fullContent
-            },
+            message: { role: choice.message.role, content: fullContent },
             finish_reason: choice.finish_reason
           };
         }),
@@ -176,9 +177,8 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       res.json(openaiResponse);
     }
-
   } catch (error) {
-    console.error('Proxy error:', error.message, error.response?.data);
+    console.error('Proxy error:', error.message, error.response?.status);
 
     if (res.headersSent) return res.end();
 
@@ -192,7 +192,6 @@ app.post('/v1/chat/completions', async (req, res) => {
   }
 });
 
-// Catch-all
 app.all('*', (req, res) => {
   res.status(404).json({
     error: {
@@ -203,7 +202,6 @@ app.all('*', (req, res) => {
   });
 });
 
-// Only listen locally; Vercel runs the app itself
 if (process.env.VERCEL !== '1') {
   app.listen(PORT, () => {
     console.log(`OpenAI to NVIDIA NIM Proxy running on port ${PORT}`);
