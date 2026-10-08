@@ -2,6 +2,7 @@
 // server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
 // server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
 // server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
+// server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -31,7 +32,6 @@ const MODEL_MAPPING = {
   'gemini-pro': DEFAULT_MODEL
 };
 
-// Prompt size limits (keeps big bots from hanging)
 const MAX_CHARS = 20000;
 const MAX_SYSTEM_CHARS = 10000;
 
@@ -55,12 +55,34 @@ app.get('/v1/models', (req, res) => {
   });
 });
 
+// TEMPORARY test page - delete after debugging
+app.get('/test', async (req, res) => {
+  const model = req.query.model || 'moonshotai/kimi-k3';
+  try {
+    const r = await axios.post(`${NIM_API_BASE}/chat/completions`, {
+      model,
+      messages: [{ role: 'user', content: 'say hi' }],
+      max_tokens: 50
+    }, {
+      headers: { 'Authorization': `Bearer ${NIM_API_KEY}`, 'Content-Type': 'application/json' },
+      timeout: 40000
+    });
+    res.json({ ok: true, model, reply: r.data.choices?.[0]?.message });
+  } catch (e) {
+    res.json({
+      ok: false,
+      model,
+      status: e.response?.status,
+      nvidia_said: e.response?.data || e.message
+    });
+  }
+});
+
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, max_tokens, stream } = req.body;
     const nimModel = MODEL_MAPPING[model] || model || DEFAULT_MODEL;
 
-    // Trim the prompt so it stays a reasonable size
     const textOf = (m) => (typeof m.content === 'string' ? m.content : '');
 
     const systemMsgs = messages
@@ -85,7 +107,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       messages: finalMessages,
       temperature: 0.9,
       top_p: 1,
-      max_tokens: max_tokens || 1024,
+      max_tokens: Math.min(max_tokens || 1024, 4096),
       stream: !!stream
     };
 
@@ -201,10 +223,8 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.json(openaiResponse);
     }
   } catch (error) {
-      } catch (error) {
     let detail = error.response?.data;
     if (detail && typeof detail.on === 'function') {
-      // streaming responses come back as a stream, so read it out first
       detail = await new Promise((resolve) => {
         let s = '';
         detail.on('data', (c) => (s += c.toString()));
@@ -217,6 +237,10 @@ app.post('/v1/chat/completions', async (req, res) => {
     if (res.headersSent) return res.end();
 
     res.status(error.response?.status || 500).json({
+      error: {
+        message: error.message || 'Internal server error',
+        type: 'invalid_request_error',
+        code: error.response?.status || 500
       }
     });
   }
