@@ -201,15 +201,22 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.json(openaiResponse);
     }
   } catch (error) {
-    console.error('Proxy error:', error.message, error.response?.status);
+      } catch (error) {
+    let detail = error.response?.data;
+    if (detail && typeof detail.on === 'function') {
+      // streaming responses come back as a stream, so read it out first
+      detail = await new Promise((resolve) => {
+        let s = '';
+        detail.on('data', (c) => (s += c.toString()));
+        detail.on('end', () => resolve(s));
+        detail.on('error', () => resolve(s));
+      });
+    }
+    console.error('Proxy error:', error.message, '| NVIDIA said:', JSON.stringify(detail));
 
     if (res.headersSent) return res.end();
 
     res.status(error.response?.status || 500).json({
-      error: {
-        message: error.message || 'Internal server error',
-        type: 'invalid_request_error',
-        code: error.response?.status || 500
       }
     });
   }
