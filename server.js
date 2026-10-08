@@ -86,7 +86,7 @@ const finalMessages = [...systemMsgs, ...chatMsgs];
 
     const nimRequest = {
       model: nimModel,
-      messages,
+      messages, finalMessages
       temperature: temperature || 0.6,
       max_tokens: max_tokens || 2048,
       stream: !!stream,
