@@ -64,6 +64,26 @@ app.post('/v1/chat/completions', async (req, res) => {
     const { model, messages, temperature, max_tokens, stream } = req.body;
     const nimModel = MODEL_MAPPING[model] || DEFAULT_MODEL;
 
+    // Cap total prompt size so every bot responds in reasonable time
+const MAX_CHARS = 20000;        // total budget (~5,000 tokens)
+const MAX_SYSTEM_CHARS = 10000; // cap for character card / system text
+
+const textOf = (m) => (typeof m.content === 'string' ? m.content : '');
+
+let systemMsgs = messages
+  .filter(m => m.role === 'system')
+  .map(m => ({ ...m, content: textOf(m).slice(0, MAX_SYSTEM_CHARS) }));
+
+let chatMsgs = messages.filter(m => m.role !== 'system');
+
+const total = () => [...systemMsgs, ...chatMsgs].reduce((n, m) => n + textOf(m).length, 0);
+
+while (chatMsgs.length > 2 && total() > MAX_CHARS) {
+  chatMsgs.shift(); // drop the oldest chat message first
+}
+
+const finalMessages = [...systemMsgs, ...chatMsgs];
+
     const nimRequest = {
       model: nimModel,
       messages,
