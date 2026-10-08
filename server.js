@@ -1,6 +1,7 @@
 // server.js - OpenAI to NVIDIA NIM API Proxy
 // server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
 // server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
+// server.js - OpenAI to NVIDIA NIM API Proxy (Vercel-ready)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -12,19 +13,12 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.originalUrl}`);
-  next();
-});
-
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = (process.env.NIM_API_KEY || '').trim();
 
-// Set to true to see the model's reasoning inside <think> tags
 const SHOW_REASONING = false;
-// Set to false to make GLM answer directly (faster, no silent "thinking" phase)
-const ENABLE_THINKING = false;
 
+// Change this to switch the default model
 const DEFAULT_MODEL = 'z-ai/glm-5.3-flash';
 
 const MODEL_MAPPING = {
@@ -37,12 +31,14 @@ const MODEL_MAPPING = {
   'gemini-pro': DEFAULT_MODEL
 };
 
+// Prompt size limits (keeps big bots from hanging)
+const MAX_CHARS = 20000;
+const MAX_SYSTEM_CHARS = 10000;
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     model: DEFAULT_MODEL,
-    show_reasoning: SHOW_REASONING,
-    thinking: ENABLE_THINKING,
     api_key_set: !!NIM_API_KEY
   });
 });
@@ -61,44 +57,45 @@ app.get('/v1/models', (req, res) => {
 
 app.post('/v1/chat/completions', async (req, res) => {
   try {
-    const { model, messages, temperature, max_tokens, stream } = req.body;
-    const nimModel = MODEL_MAPPING[model] || DEFAULT_MODEL;
+    const { model, messages, max_tokens, stream } = req.body;
+    const nimModel = MODEL_MAPPING[model] || model || DEFAULT_MODEL;
 
-    // Cap total prompt size so every bot responds in reasonable time
-const MAX_CHARS = 20000;        // total budget (~5,000 tokens)
-const MAX_SYSTEM_CHARS = 10000; // cap for character card / system text
+    // Trim the prompt so it stays a reasonable size
+    const textOf = (m) => (typeof m.content === 'string' ? m.content : '');
 
-const textOf = (m) => (typeof m.content === 'string' ? m.content : '');
+    const systemMsgs = messages
+      .filter(m => m.role === 'system')
+      .map(m => ({ ...m, content: textOf(m).slice(0, MAX_SYSTEM_CHARS) }));
 
-let systemMsgs = messages
-  .filter(m => m.role === 'system')
-  .map(m => ({ ...m, content: textOf(m).slice(0, MAX_SYSTEM_CHARS) }));
+    const chatMsgs = messages.filter(m => m.role !== 'system');
 
-let chatMsgs = messages.filter(m => m.role !== 'system');
+    const total = () =>
+      [...systemMsgs, ...chatMsgs].reduce((n, m) => n + textOf(m).length, 0);
 
-const total = () => [...systemMsgs, ...chatMsgs].reduce((n, m) => n + textOf(m).length, 0);
+    while (chatMsgs.length > 2 && total() > MAX_CHARS) {
+      chatMsgs.shift();
+    }
 
-while (chatMsgs.length > 2 && total() > MAX_CHARS) {
-  chatMsgs.shift(); // drop the oldest chat message first
-}
+    const finalMessages = [...systemMsgs, ...chatMsgs];
 
-const finalMessages = [...systemMsgs, ...chatMsgs];
+    console.log('model:', nimModel, '| messages:', finalMessages.length, '| chars:', total());
 
     const nimRequest = {
-  model: nimModel,
-  messages: finalMessages,
-  temperature: 0.5,
-  top_p: 1,
-  max_tokens: max_tokens || 1024,
-  stream: !!stream
-};
+      model: nimModel,
+      messages: finalMessages,
+      temperature: 0.9,
+      top_p: 1,
+      max_tokens: max_tokens || 1024,
+      stream: !!stream
+    };
 
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      responseType: stream ? 'stream' : 'json'
+      responseType: stream ? 'stream' : 'json',
+      timeout: 45000
     });
 
     if (stream) {
@@ -168,6 +165,7 @@ const finalMessages = [...systemMsgs, ...chatMsgs];
         clearInterval(keepAlive);
         res.end();
       });
+
       response.data.on('error', (err) => {
         clearInterval(keepAlive);
         console.error('Stream error:', err.message);
@@ -178,7 +176,7 @@ const finalMessages = [...systemMsgs, ...chatMsgs];
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
-        model,
+        model: model,
         choices: response.data.choices.map(choice => {
           let fullContent = choice.message?.content || '';
           const reasoning = choice.message?.reasoning_content || choice.message?.reasoning;
