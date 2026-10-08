@@ -106,7 +106,8 @@ app.post('/v1/chat/completions', async (req, res) => {
       model: nimModel,
       messages: finalMessages,
       temperature: 0.9,
-      top_p: 1,
+
+    
       max_tokens: Math.min(max_tokens || 1024, 4096),
       stream: !!stream
     };
