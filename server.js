@@ -85,13 +85,13 @@ while (chatMsgs.length > 2 && total() > MAX_CHARS) {
 const finalMessages = [...systemMsgs, ...chatMsgs];
 
     const nimRequest = {
-      model: nimModel,
-      messages, finalMessages
-      temperature: temperature || 0.6,
-      max_tokens: max_tokens || 2048,
-      stream: !!stream,
-      chat_template_kwargs: { enable_thinking: ENABLE_THINKING }
-    };
+  model: nimModel,
+  messages: finalMessages,
+  temperature: 0.5,
+  top_p: 1,
+  max_tokens: max_tokens || 1024,
+  stream: !!stream
+};
 
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
