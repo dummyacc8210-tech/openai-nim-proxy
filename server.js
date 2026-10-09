@@ -20,7 +20,7 @@ const NIM_API_KEY = (process.env.NIM_API_KEY || '').trim();
 const SHOW_REASONING = false;
 
 // Change this to switch the default model
-const DEFAULT_MODEL = 'z-ai/glm-5-3';
+const DEFAULT_MODEL = 'z-ai/glm-5.3';
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': DEFAULT_MODEL,
