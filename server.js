@@ -78,7 +78,7 @@ app.get('/test', async (req, res) => {
   }
 });
 
-app.post('/v1/chat/completions', async (req, res) => {
+app.post(['/v1/chat/completions', '/chat/completions', '/v1', '/'], async (req, res) => {
   try {
     const { model, messages, max_tokens, stream } = req.body;
     const nimModel = MODEL_MAPPING[model] || model || DEFAULT_MODEL;
