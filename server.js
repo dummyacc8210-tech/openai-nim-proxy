@@ -42,6 +42,7 @@ const MAX_SYSTEM_CHARS = 10000;
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
+    version: 'glm-marker-2',
     model: DEFAULT_MODEL,
     api_key_set: !!NIM_API_KEY
   });
