@@ -123,7 +123,7 @@ app.post(['/', '/v1', '/v1/', /chat\/completions\/?$/], async (req, res) => {
         'Content-Type': 'application/json'
       },
       responseType: stream ? 'stream' : 'json',
-      timeout: 240000
+      timeout: 0
     });
 
     if (stream) {
