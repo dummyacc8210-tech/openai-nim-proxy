@@ -21,7 +21,7 @@ app.use((req, res, next) => {
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = (process.env.NIM_API_KEY || '').trim();
 
-const SHOW_REASONING = true;
+const SHOW_REASONING = false;
 
 // Change this to switch the default model
 const DEFAULT_MODEL = 'deepseek-ai/deepseek-v4.1-flash';
