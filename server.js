@@ -21,10 +21,10 @@ app.use((req, res, next) => {
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = (process.env.NIM_API_KEY || '').trim();
 
-const SHOW_REASONING = false;
+const SHOW_REASONING = true;
 
 // Change this to switch the default model
-const DEFAULT_MODEL = 'z-ai/glm-5.3-flash';
+const DEFAULT_MODEL = 'deepseek-ai/deepseek-v4.1-flash';
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': DEFAULT_MODEL,
