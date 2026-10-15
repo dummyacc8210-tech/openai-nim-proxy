@@ -24,7 +24,7 @@ const NIM_API_KEY = (process.env.NIM_API_KEY || '').trim();
 const SHOW_REASONING = false;
 
 // Change this to switch the default model
-const DEFAULT_MODEL = 'google/gemma-4-31b-it';
+const DEFAULT_MODEL = 'deepseek-ai/deepseek-v4.1-flash';
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': DEFAULT_MODEL,
