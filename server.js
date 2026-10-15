@@ -24,7 +24,7 @@ const NIM_API_KEY = (process.env.NIM_API_KEY || '').trim();
 const SHOW_REASONING = false;
 
 // Change this to switch the default model
-const DEFAULT_MODEL = 'stepfun-ai/step-5-preview';
+const DEFAULT_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': DEFAULT_MODEL,
